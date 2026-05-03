@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Emma Kate — Subscriptions Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #fffcf9;
+      --surface: #ffffff;
+      --border: rgba(60, 52, 137, 0.12);
+      --border-strong: rgba(60, 52, 137, 0.25);
+      --text: #2C2C2A;
+      --text-soft: #6b6963;
+      --text-muted: #9a9892;
+      --yellow: #fadb7b;
+      --yellow-deep: #f5cb53;
+      --yellow-text: #5a4408;
+      --purple: #d4c0dd;
+      --purple-deep: #c2a9cf;
+      --purple-text: #3C3489;
+      --green: #c8dba6;
+      --green-text: #3B6D11;
+      --red-bg: #fbe5e5;
+      --red-text: #8b1f1f;
+      --red-row: rgba(251, 229, 229, 0.45);
+      --amber-bg: #fce8c8;
+      --amber-text: #6b4906;
+      --amber-row: rgba(252, 232, 200, 0.45);
+      --gray-bg: #ece8df;
+      --gray-text: #5F5E5A;
+      --info-bg: #d9e5f0;
+      --info-text: #1c4870;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem 1.5rem;
+      line-height: 1.5;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { display: flex; align-items: center; gap: 14px; margin-bottom: 1.75rem; }
+    .logo {
+      width: 48px; height: 48px;
+      border-radius: var(--radius-md);
+      background: var(--purple);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'DM Serif Display', serif;
+      color: var(--purple-text);
+      font-size: 22px;
+    }
+    .title { font-family: 'DM Serif Display', serif; font-size: 28px; color: var(--text); line-height: 1.1; }
+    .subtitle { font-size: 13px; color: var(--text-soft); margin-top: 2px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .card label { font-size: 13px; color: var(--text-soft); display: block; margin-bottom: 8px; font-weight: 500; }
+    .keyrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .keyrow input {
+      flex: 1; min-width: 240px;
+      font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+      font-size: 13px;
+      padding: 10px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+    }
+    .keyrow input:focus { border-color: var(--purple-text); box-shadow: 0 0 0 3px rgba(60, 52, 137, 0.1); }
+    button {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 10px 16px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: transform 0.05s, background 0.15s, border-color 0.15s;
+      border: 1px solid transparent;
+    }
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .btn-primary { background: var(--purple); border-color: var(--purple-deep); color: var(--purple-text); }
+    .btn-primary:hover:not(:disabled) { background: var(--purple-deep); }
+    .btn-secondary { background: var(--yellow); border-color: var(--yellow-deep); color: var(--yellow-text); }
+    .btn-secondary:hover:not(:disabled) { background: var(--yellow-deep); }
+    .btn-ghost { background: transparent; border-color: var(--border-strong); color: var(--text-soft); padding: 10px 14px; }
+    .btn-ghost:hover:not(:disabled) { background: var(--bg); border-color: var(--purple-text); color: var(--text); }
+    .btn-icon { display: inline-flex; align-items: center; gap: 6px; }
+    .tip {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 12px;
+      line-height: 1.6;
+      padding: 10px 14px;
+      background: var(--bg);
+      border-radius: var(--radius-md);
+      border-left: 3px solid var(--yellow);
+    }
+    .tip strong { color: var(--text-soft); font-weight: 600; }
+    .progress { height: 6px; background: #f1ece2; border-radius: 999px; overflow: hidden; margin-top: 14px; display: none; }
+    .progress-bar { height: 100%; background: var(--yellow-deep); width: 0%; transition: width 0.3s ease; }
+    .progress-text { font-size: 12px; color: var(--text-muted); margin-top: 6px; display: none; }
+    .err {
+      background: var(--red-bg);
+      border: 1px solid #f0a8a8;
+      color: var(--red-text);
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      margin-bottom: 1rem;
+      display: none;
+      line-height: 1.6;
+    }
+    .err code { background: rgba(139, 31, 31, 0.1); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 1.25rem;
+    }
+    .metric {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1rem 1.15rem;
+    }
+    .metric-label { font-size: 12px; color: var(--text-soft); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .metric-value { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--text); line-height: 1.1; }
+    .metric-value.small { font-size: 16px; font-family: 'DM Sans', sans-serif; font-weight: 500; }
+    .metric-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 1rem; }
+    .controls input, .controls select {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 9px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+    }
+    .controls input:focus, .controls select:focus { border-color: var(--purple-text); box-shadow: 0 0 0 3px rgba(60, 52, 137, 0.1); }
+    .controls .grow { flex: 1; min-width: 220px; }
+
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .table th {
+      text-align: left;
+      font-weight: 500;
+      color: var(--text-soft);
+      padding: 12px 16px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .table tr.row-main { cursor: pointer; transition: background 0.12s; }
+    .table tr.row-main:hover td { background: var(--bg); }
+    .table tr.row-main.is-pastdue td { background: var(--red-row); }
+    .table tr.row-main.is-pastdue:hover td { background: rgba(251, 229, 229, 0.7); }
+    .table tr.row-main.is-trial-ending td { background: var(--amber-row); }
+    .table tr.row-main.is-trial-ending:hover td { background: rgba(252, 232, 200, 0.7); }
+    .table tr:last-child td { border-bottom: none; }
+    .name { font-weight: 500; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    .chevron {
+      width: 12px; height: 12px; flex-shrink: 0;
+      color: var(--text-muted);
+      transition: transform 0.15s ease;
+    }
+    .row-main.expanded .chevron { transform: rotate(90deg); color: var(--purple-text); }
+    .email { color: var(--text-soft); font-size: 12px; margin-top: 2px; padding-left: 20px; }
+    .pill {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: capitalize;
+      white-space: nowrap;
+    }
+    .pill.active { background: var(--green); color: var(--green-text); }
+    .pill.canceled, .pill.cancelled, .pill.canceling { background: var(--gray-bg); color: var(--gray-text); }
+    .pill.past_due { background: var(--red-bg); color: var(--red-text); }
+    .pill.trialing { background: var(--info-bg); color: var(--info-text); }
+    .pill.incomplete, .pill.unpaid, .pill.incomplete_expired, .pill.paused { background: var(--amber-bg); color: var(--amber-text); }
+    .amount { font-weight: 500; white-space: nowrap; }
+    .next-cell .next-date { white-space: nowrap; }
+    .next-cell .next-rel { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .next-cell .next-rel.urgent { color: var(--red-text); font-weight: 500; }
+    .next-cell .next-rel.soon { color: var(--amber-text); font-weight: 500; }
+    .empty { padding: 3rem 1rem; text-align: center; color: var(--text-soft); font-size: 13px; }
+    .dash { color: var(--text-muted); }
+
+    .detail-row td { padding: 0 !important; background: var(--bg) !important; border-bottom: 1px solid var(--border); }
+    .detail-inner {
+      padding: 18px 20px 22px 20px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .detail-section h4 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--text-soft); font-weight: 500; margin-bottom: 10px;
+    }
+    .detail-list { font-size: 13px; }
+    .detail-list .drow { display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+    .detail-list .drow:last-child { border-bottom: none; }
+    .detail-list .label { color: var(--text-soft); }
+    .detail-list .value { color: var(--text); text-align: right; word-break: break-word; }
+    .detail-list .value code { font-size: 11px; background: var(--surface); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; }
+    .detail-link {
+      display: inline-block; margin-top: 10px; margin-right: 8px;
+      font-size: 12px; color: var(--purple-text);
+      text-decoration: none; padding: 6px 12px;
+      border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+      transition: all 0.15s;
+    }
+    .detail-link:hover { background: var(--purple); border-color: var(--purple-deep); }
+
+    @media (max-width: 720px) {
+      body { padding: 1.25rem 1rem; }
+      .title { font-size: 22px; }
+      .table thead { display: none; }
+      .table tr.row-main { display: block; padding: 14px 16px; }
+      .table tr.row-main td {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        padding: 5px 0; border: none; gap: 16px;
+      }
+      .table tr.row-main td::before {
+        content: attr(data-label);
+        color: var(--text-muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        flex-shrink: 0;
+        font-weight: 500;
+      }
+      .table tr.row-main td:first-child { flex-direction: column; align-items: flex-start; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+      .table tr.row-main td:first-child::before { display: none; }
+      .email { padding-left: 20px; }
+      .detail-inner { grid-template-columns: 1fr; gap: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">EK</div>
+      <div>
+        <div class="title">Subscriptions</div>
+        <div class="subtitle">Stripe subscriptions dashboard</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label for="apiKey">Stripe restricted API key (read-only)</label>
+      <div class="keyrow">
+        <input type="password" id="apiKey" placeholder="rk_live_..." autocomplete="off" />
+        <button class="btn-primary" id="loadBtn">Load subscriptions</button>
+        <button class="btn-ghost" id="clearBtn">Clear</button>
+      </div>
+      <div class="progress" id="progress"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="progress-text" id="progressText"></div>
+      <div class="tip">
+        Create a restricted key in Stripe → <strong>Developers → API keys → Create restricted key</strong>. Give it <strong>read-only</strong> access to <strong>Customers</strong>, <strong>Subscriptions</strong>, <strong>Products</strong>, <strong>Prices</strong>, <strong>Invoices</strong> and <strong>Charges</strong>. Your key is saved only in this browser — nothing leaves your computer.
+      </div>
+    </div>
+
+    <div class="err" id="errBox"></div>
+
+    <div id="results" style="display:none;">
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">Total subs</div><div class="metric-value" id="m-total">0</div></div>
+        <div class="metric"><div class="metric-label">Active</div><div class="metric-value" id="m-active">0</div></div>
+        <div class="metric"><div class="metric-label">Past due</div><div class="metric-value" id="m-pastdue">0</div></div>
+        <div class="metric"><div class="metric-label">Cancelled</div><div class="metric-value" id="m-cancelled">0</div></div>
+        <div class="metric">
+          <div class="metric-label">YRR (active, AUD)</div>
+          <div class="metric-value small" id="m-yrr">—</div>
+          <div class="metric-sub" id="m-yrr-sub">&nbsp;</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Last refresh</div>
+          <div class="metric-value small" id="m-refresh">—</div>
+          <div class="metric-sub">
+            <button class="btn-ghost btn-icon" id="refreshBtn" style="padding: 4px 10px; font-size: 11px; margin-top: 2px;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <input type="search" class="grow" id="search" placeholder="Search by name or email..." />
+        <select id="statusFilter">
+          <option value="default">Active + past due</option>
+          <option value="">All statuses</option>
+          <option value="active">Active only</option>
+          <option value="past_due">Past due only</option>
+          <option value="canceled">Cancelled</option>
+          <option value="trialing">Trialing</option>
+          <option value="incomplete">Incomplete</option>
+          <option value="unpaid">Unpaid</option>
+          <option value="paused">Paused</option>
+        </select>
+        <select id="productFilter"><option value="">All products</option></select>
+        <button class="btn-secondary" id="exportBtn">Export CSV</button>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Customer</th>
+              <th>Status</th>
+              <th>Product</th>
+              <th>Amount</th>
+              <th>Last payment</th>
+              <th>Next payment</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="empty" id="emptyMsg" style="display:none;">No subscriptions match your filters.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const STORAGE_KEY = 'ek_stripe_dashboard_key_v1';
+let allSubs = [];
+let productMap = {};
+let customerMap = {};
+let fxRates = null;
+let expandedSubId = null;
+
+const $ = id => document.getElementById(id);
+const keyInput = $('apiKey');
+const errBox = $('errBox');
+const resultsBox = $('results');
+const tbody = $('tbody');
+const emptyMsg = $('emptyMsg');
+const progress = $('progress');
+const progressBar = $('progressBar');
+const progressText = $('progressText');
+
+const saved = localStorage.getItem(STORAGE_KEY);
+if (saved) keyInput.value = saved;
+
+$('clearBtn').addEventListener('click', () => {
+  keyInput.value = '';
+  localStorage.removeItem(STORAGE_KEY);
+  resultsBox.style.display = 'none';
+  hideError();
+});
+$('loadBtn').addEventListener('click', loadSubscriptions);
+$('refreshBtn').addEventListener('click', loadSubscriptions);
+$('search').addEventListener('input', render);
+$('statusFilter').addEventListener('change', render);
+$('productFilter').addEventListener('change', render);
+$('exportBtn').addEventListener('click', exportCSV);
+
+function showError(msg) { errBox.innerHTML = msg; errBox.style.display = 'block'; }
+function hideError() { errBox.style.display = 'none'; }
+function setProgress(pct, txt) {
+  progress.style.display = 'block';
+  progressText.style.display = 'block';
+  progressBar.style.width = pct + '%';
+  progressText.textContent = txt;
+}
+function hideProgress() {
+  progress.style.display = 'none';
+  progressText.style.display = 'none';
+}
+
+async function stripeFetch(path, key) {
+  const res = await fetch('https://api.stripe.com/v1/' + path, {
+    headers: { 'Authorization': 'Bearer ' + key }
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err.error && err.error.message) || ('HTTP ' + res.status));
+  }
+  return res.json();
+}
+
+async function fetchFxRates() {
+  try {
+    const res = await fetch('https://api.frankfurter.app/latest?from=USD');
+    if (!res.ok) throw new Error('FX fetch failed');
+    const data = await res.json();
+    return { base: 'USD', rates: { ...data.rates, USD: 1 }, fetchedAt: Date.now(), date: data.date };
+  } catch (e) {
+    return { base: 'USD', rates: { USD: 1, AUD: 1.52, EUR: 0.92, GBP: 0.79, NZD: 1.65, CAD: 1.37 }, fetchedAt: Date.now(), date: 'fallback', isFallback: true };
+  }
+}
+
+function convertToAUD(amount, currency) {
+  if (!fxRates) return null;
+  const cur = (currency || 'usd').toUpperCase();
+  if (cur === 'AUD') return amount;
+  if (cur === 'USD') return amount * (fxRates.rates.AUD || 1.52);
+  const toUSD = 1 / (fxRates.rates[cur] || 1);
+  const toAUD = fxRates.rates.AUD || 1.52;
+  return amount * toUSD * toAUD;
+}
+
+async function loadSubscriptions() {
+  const key = keyInput.value.trim();
+  hideError();
+  if (!key) { showError('Please enter your Stripe API key.'); return; }
+  if (!key.startsWith('rk_') && !key.startsWith('sk_')) {
+    showError('That doesn\u2019t look like a Stripe API key. It should start with <code>rk_</code> (restricted) or <code>sk_</code> (secret).');
+    return;
+  }
+  localStorage.setItem(STORAGE_KEY, key);
+
+  $('loadBtn').disabled = true;
+  $('refreshBtn').disabled = true;
+
+  try {
+    setProgress(5, 'Fetching exchange rates...');
+    fxRates = await fetchFxRates();
+
+    setProgress(12, 'Fetching subscriptions...');
+    const subs = [];
+    let starting_after = null;
+    let pageCount = 0;
+    while (true) {
+      pageCount++;
+      let path = 'subscriptions?limit=100&status=all&expand[]=data.customer&expand[]=data.latest_invoice';
+      if (starting_after) path += '&starting_after=' + encodeURIComponent(starting_after);
+      const data = await stripeFetch(path, key);
+      subs.push(...data.data);
+      setProgress(Math.min(70, 12 + pageCount * 18), 'Fetched ' + subs.length + ' subscriptions...');
+      if (!data.has_more) break;
+      starting_after = data.data[data.data.length - 1].id;
+    }
+
+    setProgress(75, 'Loading product names...');
+    const productIds = new Set();
+    for (const s of subs) {
+      for (const item of (s.items?.data || [])) {
+        const prodId = item.price?.product;
+        if (prodId) productIds.add(prodId);
+      }
+    }
+    productMap = {};
+    for (const pid of productIds) {
+      try {
+        const p = await stripeFetch('products/' + pid, key);
+        productMap[pid] = p.name;
+      } catch { productMap[pid] = pid; }
+    }
+
+    setProgress(90, 'Loading customer details...');
+    customerMap = {};
+    for (const s of subs) {
+      const c = s.customer;
+      if (typeof c === 'object' && c !== null) {
+        customerMap[c.id] = { name: c.name || '', email: c.email || '', id: c.id };
+      } else if (typeof c === 'string' && !customerMap[c]) {
+        try {
+          const cust = await stripeFetch('customers/' + c, key);
+          customerMap[c] = { name: cust.name || '', email: cust.email || '', id: c };
+        } catch { customerMap[c] = { name: '', email: '', id: c }; }
+      }
+    }
+
+    setProgress(98, 'Building dashboard...');
+    allSubs = subs.map(processSubscription);
+
+    populateProductFilter();
+    render();
+    $('m-refresh').textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    resultsBox.style.display = 'block';
+    setProgress(100, 'Done.');
+    setTimeout(hideProgress, 700);
+  } catch (e) {
+    hideProgress();
+    showError('Couldn\u2019t load subscriptions: ' + e.message + '<br><span style="font-size:12px;opacity:0.85;">Check the key has read access to Customers, Subscriptions, Products, Prices, Invoices and Charges.</span>');
+  } finally {
+    $('loadBtn').disabled = false;
+    $('refreshBtn').disabled = false;
+  }
+}
+
+function processSubscription(s) {
+  const cust = (typeof s.customer === 'object' && s.customer)
+    ? { name: s.customer.name || '', email: s.customer.email || '', id: s.customer.id }
+    : (customerMap[s.customer] || { name: '', email: '', id: s.customer });
+  const items = s.items?.data || [];
+  const products = items.map(i => productMap[i.price?.product] || 'Unknown product').filter(Boolean);
+  const productNames = [...new Set(products)].join(', ') || '—';
+
+  let total = 0;
+  let annualised = 0;
+  let currency = 'usd';
+  let interval = null;
+  let intervalCount = 1;
+
+  for (const item of items) {
+    const unit = item.price?.unit_amount || 0;
+    const qty = item.quantity || 1;
+    const sub = unit * qty;
+    total += sub;
+    if (item.price?.currency) currency = item.price.currency;
+    const recurring = item.price?.recurring;
+    if (recurring) {
+      interval = recurring.interval;
+      intervalCount = recurring.interval_count || 1;
+      let cyclesPerYear = 12;
+      if (interval === 'day') cyclesPerYear = 365 / intervalCount;
+      else if (interval === 'week') cyclesPerYear = 52 / intervalCount;
+      else if (interval === 'month') cyclesPerYear = 12 / intervalCount;
+      else if (interval === 'year') cyclesPerYear = 1 / intervalCount;
+      annualised += sub * cyclesPerYear;
+    } else {
+      annualised += sub * 12;
+    }
+  }
+
+  let lastPaymentDate = null;
+  let lastInvoiceUrl = null;
+  if (s.latest_invoice && typeof s.latest_invoice === 'object') {
+    const inv = s.latest_invoice;
+    if (inv.hosted_invoice_url) lastInvoiceUrl = inv.hosted_invoice_url;
+    if (inv.status === 'paid' && inv.status_transitions?.paid_at) {
+      lastPaymentDate = inv.status_transitions.paid_at;
+    } else if (inv.paid && inv.created) {
+      lastPaymentDate = inv.created;
+    }
+  }
+  if (!lastPaymentDate && s.current_period_start && (s.status === 'active' || s.status === 'trialing')) {
+    lastPaymentDate = s.current_period_start;
+  }
+
+  let nextPayment = null;
+  if (s.status !== 'canceled' && s.status !== 'incomplete_expired' && !s.cancel_at_period_end) {
+    nextPayment = s.current_period_end || null;
+  }
+
+  return {
+    id: s.id,
+    customerId: cust.id,
+    name: cust.name || '(no name on file)',
+    email: cust.email || '',
+    status: s.status,
+    cancelAtPeriodEnd: !!s.cancel_at_period_end,
+    products: productNames,
+    productList: [...new Set(products)],
+    amount: total,
+    annualised: annualised,
+    currency: currency,
+    interval: interval,
+    intervalCount: intervalCount,
+    lastPayment: lastPaymentDate,
+    lastInvoiceUrl: lastInvoiceUrl,
+    nextPayment: nextPayment,
+    canceledAt: s.canceled_at,
+    created: s.created,
+    trialEnd: s.trial_end,
+    startDate: s.start_date
+  };
+}
+
+function populateProductFilter() {
+  const sel = $('productFilter');
+  const all = new Set();
+  allSubs.forEach(s => s.productList.forEach(p => all.add(p)));
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All products</option>' +
+    [...all].sort().map(p => '<option' + (p === current ? ' selected' : '') + '>' + escapeHtml(p) + '</option>').join('');
+}
+
+function fmtMoney(amount, currency) {
+  if (amount == null) return '—';
+  try {
+    return new Intl.NumberFormat('en-AU', {
+      style: 'currency',
+      currency: (currency || 'usd').toUpperCase(),
+      minimumFractionDigits: 2
+    }).format(amount / 100);
+  } catch {
+    return '$' + (amount / 100).toFixed(2) + ' ' + (currency || '').toUpperCase();
+  }
+}
+
+function fmtAUD(amountCents) {
+  return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 2 }).format(amountCents / 100);
+}
+
+function fmtDate(ts) {
+  if (!ts) return null;
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function intervalLabel(interval, count) {
+  if (!interval) return '';
+  const base = interval === 'day' ? 'day' : interval === 'week' ? 'week' : interval === 'month' ? 'month' : 'year';
+  if (count === 1) return 'every ' + base;
+  return 'every ' + count + ' ' + base + 's';
+}
+
+function relativeDays(ts) {
+  if (!ts) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const diffSec = ts - now;
+  const days = Math.round(diffSec / 86400);
+  if (days < -1) return { text: Math.abs(days) + ' days overdue', kind: 'urgent' };
+  if (days === -1) return { text: '1 day overdue', kind: 'urgent' };
+  if (days === 0) return { text: 'today', kind: 'urgent' };
+  if (days === 1) return { text: 'tomorrow', kind: 'soon' };
+  if (days <= 7) return { text: 'in ' + days + ' days', kind: 'soon' };
+  if (days <= 30) return { text: 'in ' + days + ' days', kind: '' };
+  if (days <= 60) return { text: 'in ~1 month', kind: '' };
+  const months = Math.round(days / 30);
+  return { text: 'in ~' + months + ' months', kind: '' };
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function statusRank(s) {
+  if (s.status === 'past_due') return 0;
+  if (s.status === 'unpaid') return 1;
+  if (s.status === 'active') return 2;
+  if (s.status === 'trialing') return 3;
+  if (s.status === 'incomplete' || s.status === 'paused') return 4;
+  if (s.status === 'canceled' || s.status === 'incomplete_expired') return 6;
+  return 5;
+}
+
+function render() {
+  const q = $('search').value.toLowerCase().trim();
+  const statusFilter = $('statusFilter').value;
+  const productFilter = $('productFilter').value;
+
+  const filtered = allSubs.filter(s => {
+    if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q)) return false;
+    if (statusFilter === 'default') {
+      if (s.status !== 'active' && s.status !== 'past_due') return false;
+    } else if (statusFilter && s.status !== statusFilter) return false;
+    if (productFilter && !s.productList.includes(productFilter)) return false;
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    const ra = statusRank(a), rb = statusRank(b);
+    if (ra !== rb) return ra - rb;
+    if (a.nextPayment && b.nextPayment) return a.nextPayment - b.nextPayment;
+    if (a.nextPayment) return -1;
+    if (b.nextPayment) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  $('m-total').textContent = allSubs.length;
+  $('m-active').textContent = allSubs.filter(s => s.status === 'active').length;
+  $('m-pastdue').textContent = allSubs.filter(s => s.status === 'past_due').length;
+  $('m-cancelled').textContent = allSubs.filter(s => s.status === 'canceled').length;
+
+  let yrrAud = 0;
+  allSubs.filter(s => s.status === 'active' || s.status === 'trialing').forEach(s => {
+    const aud = convertToAUD(s.annualised, s.currency);
+    if (aud != null) yrrAud += aud;
+  });
+  $('m-yrr').textContent = fmtAUD(yrrAud);
+  if (fxRates) {
+    const audRate = fxRates.rates.AUD || 1.52;
+    const sub = fxRates.isFallback
+      ? 'FX unavailable — est. rate'
+      : '1 USD = ' + audRate.toFixed(4) + ' AUD · ' + fxRates.date;
+    $('m-yrr-sub').textContent = sub;
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '';
+    emptyMsg.style.display = 'block';
+    return;
+  }
+  emptyMsg.style.display = 'none';
+
+  tbody.innerHTML = filtered.map(s => renderRow(s)).join('');
+
+  tbody.querySelectorAll('.row-main').forEach(row => {
+    row.addEventListener('click', () => {
+      const id = row.dataset.id;
+      expandedSubId = expandedSubId === id ? null : id;
+      render();
+    });
+  });
+}
+
+function renderRow(s) {
+  const isPastDue = s.status === 'past_due' || s.status === 'unpaid';
+  const isTrialEnding = s.status === 'trialing' && s.trialEnd && (s.trialEnd - Math.floor(Date.now() / 1000) <= 7 * 86400);
+  const rowClass = 'row-main' + (isPastDue ? ' is-pastdue' : '') + (isTrialEnding ? ' is-trial-ending' : '') + (expandedSubId === s.id ? ' expanded' : '');
+  const statusClass = s.cancelAtPeriodEnd && s.status === 'active' ? 'canceling' : s.status;
+  const statusLabel = s.cancelAtPeriodEnd && s.status === 'active' ? 'Cancels at period end' : s.status.replace(/_/g, ' ');
+
+  let nextDisplay = '<span class="dash">—</span>';
+  if (s.nextPayment && !s.cancelAtPeriodEnd) {
+    const rel = relativeDays(s.nextPayment);
+    nextDisplay = '<div class="next-date">' + fmtDate(s.nextPayment) + '</div>' +
+      (rel ? '<div class="next-rel ' + rel.kind + '">' + escapeHtml(rel.text) + '</div>' : '');
+  }
+
+  const intervalSuffix = s.interval ? ' <span style="font-weight: 400; color: var(--text-muted); font-size: 11px;">' + intervalLabel(s.interval, s.intervalCount) + '</span>' : '';
+
+  let html = '<tr class="' + rowClass + '" data-id="' + escapeHtml(s.id) + '">' +
+    '<td data-label="Customer"><div class="name"><svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' + escapeHtml(s.name) + '</div><div class="email">' + escapeHtml(s.email) + '</div></td>' +
+    '<td data-label="Status"><span class="pill ' + statusClass + '">' + escapeHtml(statusLabel) + '</span></td>' +
+    '<td data-label="Product">' + escapeHtml(s.products) + '</td>' +
+    '<td data-label="Amount"><span class="amount">' + fmtMoney(s.amount, s.currency) + '</span>' + intervalSuffix + '</td>' +
+    '<td data-label="Last payment">' + (s.lastPayment ? fmtDate(s.lastPayment) : '<span class="dash">—</span>') + '</td>' +
+    '<td data-label="Next payment" class="next-cell">' + nextDisplay + '</td>' +
+  '</tr>';
+
+  if (expandedSubId === s.id) {
+    html += renderDetailRow(s);
+  }
+  return html;
+}
+
+function renderDetailRow(s) {
+  const audAnnual = convertToAUD(s.annualised, s.currency);
+  const created = s.startDate || s.created;
+  const stripeUrl = 'https://dashboard.stripe.com/subscriptions/' + s.id;
+  const customerUrl = s.customerId ? 'https://dashboard.stripe.com/customers/' + s.customerId : null;
+
+  const left = '<div class="detail-section">' +
+    '<h4>Subscription</h4>' +
+    '<div class="detail-list">' +
+      '<div class="drow"><span class="label">Subscription ID</span><span class="value"><code>' + escapeHtml(s.id) + '</code></span></div>' +
+      '<div class="drow"><span class="label">Billing</span><span class="value">' + fmtMoney(s.amount, s.currency) + ' ' + escapeHtml(intervalLabel(s.interval, s.intervalCount)) + '</span></div>' +
+      '<div class="drow"><span class="label">Annualised (' + (s.currency || 'usd').toUpperCase() + ')</span><span class="value">' + fmtMoney(s.annualised, s.currency) + '</span></div>' +
+      (audAnnual != null && (s.currency || '').toLowerCase() !== 'aud' ? '<div class="drow"><span class="label">Annualised (AUD)</span><span class="value">~' + fmtAUD(audAnnual) + '</span></div>' : '') +
+      '<div class="drow"><span class="label">Started</span><span class="value">' + (created ? fmtDate(created) : '—') + '</span></div>' +
+      (s.trialEnd ? '<div class="drow"><span class="label">Trial ends</span><span class="value">' + fmtDate(s.trialEnd) + '</span></div>' : '') +
+      (s.canceledAt ? '<div class="drow"><span class="label">Cancelled at</span><span class="value">' + fmtDate(s.canceledAt) + '</span></div>' : '') +
+      (s.cancelAtPeriodEnd && s.nextPayment ? '<div class="drow"><span class="label">Cancels on</span><span class="value">' + fmtDate(s.nextPayment) + '</span></div>' : '') +
+    '</div>' +
+    '<a class="detail-link" href="' + stripeUrl + '" target="_blank" rel="noopener">Open in Stripe →</a>' +
+  '</div>';
+
+  const right = '<div class="detail-section">' +
+    '<h4>Customer</h4>' +
+    '<div class="detail-list">' +
+      '<div class="drow"><span class="label">Name</span><span class="value">' + escapeHtml(s.name) + '</span></div>' +
+      '<div class="drow"><span class="label">Email</span><span class="value">' + (s.email ? '<a href="mailto:' + escapeHtml(s.email) + '" style="color: var(--purple-text); text-decoration: none;">' + escapeHtml(s.email) + '</a>' : '—') + '</span></div>' +
+      (s.customerId ? '<div class="drow"><span class="label">Customer ID</span><span class="value"><code>' + escapeHtml(s.customerId) + '</code></span></div>' : '') +
+      '<div class="drow"><span class="label">Products</span><span class="value">' + escapeHtml(s.products) + '</span></div>' +
+    '</div>' +
+    (customerUrl ? '<a class="detail-link" href="' + customerUrl + '" target="_blank" rel="noopener">View customer →</a>' : '') +
+    (s.lastInvoiceUrl ? '<a class="detail-link" href="' + s.lastInvoiceUrl + '" target="_blank" rel="noopener">Latest invoice →</a>' : '') +
+  '</div>';
+
+  return '<tr class="detail-row"><td colspan="6"><div class="detail-inner">' + left + right + '</div></td></tr>';
+}
+
+function exportCSV() {
+  const q = $('search').value.toLowerCase().trim();
+  const statusFilter = $('statusFilter').value;
+  const productFilter = $('productFilter').value;
+  const rows = allSubs.filter(s => {
+    if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q)) return false;
+    if (statusFilter === 'default') {
+      if (s.status !== 'active' && s.status !== 'past_due') return false;
+    } else if (statusFilter && s.status !== statusFilter) return false;
+    if (productFilter && !s.productList.includes(productFilter)) return false;
+    return true;
+  });
+  rows.sort((a, b) => {
+    const ra = statusRank(a), rb = statusRank(b);
+    if (ra !== rb) return ra - rb;
+    if (a.nextPayment && b.nextPayment) return a.nextPayment - b.nextPayment;
+    if (a.nextPayment) return -1;
+    if (b.nextPayment) return 1;
+    return a.name.localeCompare(b.name);
+  });
+  const header = ['Customer', 'Email', 'Status', 'Product(s)', 'Amount', 'Currency', 'Billing interval', 'Annualised (AUD)', 'Last payment', 'Next payment'];
+  const lines = [header, ...rows.map(s => [
+    s.name, s.email,
+    s.cancelAtPeriodEnd && s.status === 'active' ? 'cancels at period end' : s.status,
+    s.products,
+    (s.amount / 100).toFixed(2),
+    s.currency.toUpperCase(),
+    intervalLabel(s.interval, s.intervalCount),
+    convertToAUD(s.annualised, s.currency) != null ? (convertToAUD(s.annualised, s.currency) / 100).toFixed(2) : '',
+    s.lastPayment ? fmtDate(s.lastPayment) : '',
+    s.nextPayment && !s.cancelAtPeriodEnd ? fmtDate(s.nextPayment) : ''
+  ])];
+  const csv = lines.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'emma-kate-subscriptions-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
