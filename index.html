@@ -323,6 +323,7 @@
         <select id="statusFilter">
           <option value="default">Active + past due</option>
           <option value="">All statuses</option>
+          <option value="recently_paid">Recently paid (last 60 days)</option>
           <option value="active">Active only</option>
           <option value="past_due">Past due only</option>
           <option value="canceled">Cancelled</option>
@@ -486,12 +487,12 @@ async function loadSubscriptions() {
     for (const s of subs) {
       const c = s.customer;
       if (typeof c === 'object' && c !== null) {
-        customerMap[c.id] = { name: c.name || '', email: c.email || '', id: c.id };
+        customerMap[c.id] = { name: c.name || '', email: c.email || '', id: c.id, metadata: c.metadata || {} };
       } else if (typeof c === 'string' && !customerMap[c]) {
         try {
           const cust = await stripeFetch('customers/' + c, key);
-          customerMap[c] = { name: cust.name || '', email: cust.email || '', id: c };
-        } catch { customerMap[c] = { name: '', email: '', id: c }; }
+          customerMap[c] = { name: cust.name || '', email: cust.email || '', id: c, metadata: cust.metadata || {} };
+        } catch { customerMap[c] = { name: '', email: '', id: c, metadata: {} }; }
       }
     }
 
@@ -513,13 +514,37 @@ async function loadSubscriptions() {
   }
 }
 
+function normaliseProductName(name) {
+  if (!name) return name;
+  let n = name;
+  // Remove trailing parenthetical qualifiers e.g. "(1 year)", "(annual)", "(12 months)"
+  n = n.replace(/\s*\(\s*(?:\d+\s*)?(?:year|yr|yrs|month|mo|mos|annual|annually|monthly|weekly|week)s?\s*\)\s*$/i, '');
+  // Remove trailing dash/colon qualifiers e.g. " - 1 year", ": annual", " – monthly"
+  n = n.replace(/\s*[-:\u2013]\s*(?:\d+\s*)?(?:year|yr|yrs|month|mo|mos|annual|annually|monthly|weekly|week)s?\s*$/i, '');
+  return n.trim();
+}
+
 function processSubscription(s) {
   const cust = (typeof s.customer === 'object' && s.customer)
     ? { name: s.customer.name || '', email: s.customer.email || '', id: s.customer.id }
     : (customerMap[s.customer] || { name: '', email: '', id: s.customer });
   const items = s.items?.data || [];
-  const products = items.map(i => productMap[i.price?.product] || 'Unknown product').filter(Boolean);
-  const productNames = [...new Set(products)].join(', ') || '—';
+  const rawProducts = items.map(i => productMap[i.price?.product] || 'Unknown product').filter(Boolean);
+  // Normalise near-duplicate product names by striping trailing qualifiers
+  // like "(1 year)", "(annual)", "- monthly" so they collapse into one.
+  const products = rawProducts.map(normaliseProductName);
+  const productNames = [...new Set(rawProducts)].join(', ') || '—';
+  const productNamesNormalised = [...new Set(products)].join(', ') || '—';
+
+  // Pull the customer-entered "domain" field. It can live on subscription
+  // metadata, customer metadata, or as a Checkout custom field, so check all.
+  let domain = '';
+  const subMeta = s.metadata || {};
+  if (subMeta.domain) domain = subMeta.domain;
+  if (!domain && cust.metadata && cust.metadata.domain) domain = cust.metadata.domain;
+  if (!domain && typeof s.customer === 'object' && s.customer && s.customer.metadata && s.customer.metadata.domain) {
+    domain = s.customer.metadata.domain;
+  }
 
   let total = 0;
   let annualised = 0;
@@ -577,6 +602,8 @@ function processSubscription(s) {
     cancelAtPeriodEnd: !!s.cancel_at_period_end,
     products: productNames,
     productList: [...new Set(products)],
+    productListRaw: [...new Set(rawProducts)],
+    domain: domain,
     amount: total,
     annualised: annualised,
     currency: currency,
@@ -651,6 +678,13 @@ function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function isRecentlyPaid(s) {
+  if (!s.lastPayment) return false;
+  const now = Math.floor(Date.now() / 1000);
+  const sixtyDaysAgo = now - 60 * 86400;
+  return s.lastPayment >= sixtyDaysAgo;
+}
+
 function statusRank(s) {
   if (s.status === 'past_due') return 0;
   if (s.status === 'unpaid') return 1;
@@ -670,6 +704,8 @@ function render() {
     if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q)) return false;
     if (statusFilter === 'default') {
       if (s.status !== 'active' && s.status !== 'past_due') return false;
+    } else if (statusFilter === 'recently_paid') {
+      if (!isRecentlyPaid(s)) return false;
     } else if (statusFilter && s.status !== statusFilter) return false;
     if (productFilter && !s.productList.includes(productFilter)) return false;
     return true;
@@ -761,7 +797,6 @@ function renderDetailRow(s) {
   const left = '<div class="detail-section">' +
     '<h4>Subscription</h4>' +
     '<div class="detail-list">' +
-      '<div class="drow"><span class="label">Subscription ID</span><span class="value"><code>' + escapeHtml(s.id) + '</code></span></div>' +
       '<div class="drow"><span class="label">Billing</span><span class="value">' + fmtMoney(s.amount, s.currency) + ' ' + escapeHtml(intervalLabel(s.interval, s.intervalCount)) + '</span></div>' +
       '<div class="drow"><span class="label">Annualised (' + (s.currency || 'usd').toUpperCase() + ')</span><span class="value">' + fmtMoney(s.annualised, s.currency) + '</span></div>' +
       (audAnnual != null && (s.currency || '').toLowerCase() !== 'aud' ? '<div class="drow"><span class="label">Annualised (AUD)</span><span class="value">~' + fmtAUD(audAnnual) + '</span></div>' : '') +
@@ -778,7 +813,7 @@ function renderDetailRow(s) {
     '<div class="detail-list">' +
       '<div class="drow"><span class="label">Name</span><span class="value">' + escapeHtml(s.name) + '</span></div>' +
       '<div class="drow"><span class="label">Email</span><span class="value">' + (s.email ? '<a href="mailto:' + escapeHtml(s.email) + '" style="color: var(--purple-text); text-decoration: none;">' + escapeHtml(s.email) + '</a>' : '—') + '</span></div>' +
-      (s.customerId ? '<div class="drow"><span class="label">Customer ID</span><span class="value"><code>' + escapeHtml(s.customerId) + '</code></span></div>' : '') +
+      (s.domain ? '<div class="drow"><span class="label">Domain</span><span class="value">' + escapeHtml(s.domain) + '</span></div>' : '') +
       '<div class="drow"><span class="label">Products</span><span class="value">' + escapeHtml(s.products) + '</span></div>' +
     '</div>' +
     (customerUrl ? '<a class="detail-link" href="' + customerUrl + '" target="_blank" rel="noopener">View customer →</a>' : '') +
@@ -796,6 +831,8 @@ function exportCSV() {
     if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q)) return false;
     if (statusFilter === 'default') {
       if (s.status !== 'active' && s.status !== 'past_due') return false;
+    } else if (statusFilter === 'recently_paid') {
+      if (!isRecentlyPaid(s)) return false;
     } else if (statusFilter && s.status !== statusFilter) return false;
     if (productFilter && !s.productList.includes(productFilter)) return false;
     return true;
