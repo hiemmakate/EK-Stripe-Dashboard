@@ -289,7 +289,7 @@
       <div class="progress" id="progress"><div class="progress-bar" id="progressBar"></div></div>
       <div class="progress-text" id="progressText"></div>
       <div class="tip">
-        Create a restricted key in Stripe → <strong>Developers → API keys → Create restricted key</strong>. Give it <strong>read-only</strong> access to <strong>Customers</strong>, <strong>Subscriptions</strong>, <strong>Products</strong>, <strong>Prices</strong>, <strong>Invoices</strong> and <strong>Charges</strong>. Your key is saved only in this browser — nothing leaves your computer.
+        Create a restricted key in Stripe → <strong>Developers → API keys → Create restricted key</strong>. Give it <strong>read-only</strong> access to <strong>Customers</strong>, <strong>Subscriptions</strong>, <strong>Products</strong>, <strong>Prices</strong>, <strong>Invoices</strong>, <strong>Charges</strong> and <strong>Checkout Sessions</strong>. Your key is saved only in this browser — nothing leaves your computer.
       </div>
     </div>
 
@@ -514,6 +514,50 @@ async function loadSubscriptions() {
   }
 }
 
+// Looks up the customer-entered domain for a subscription by finding its
+// Checkout Session and reading the custom field whose key/label mentions "domain".
+// Falls back to checking invoice custom fields. Returns a string ('' if none found).
+async function fetchDomainForSubscription(sub, key) {
+  // 1. Try checkout sessions filtered by this subscription
+  try {
+    const data = await stripeFetch('checkout/sessions?subscription=' + encodeURIComponent(sub.id) + '&limit=5', key);
+    for (const session of (data.data || [])) {
+      const found = extractDomainFromCustomFields(session.custom_fields);
+      if (found) return found;
+    }
+  } catch (e) { /* key may lack Checkout Sessions read access; fall through */ }
+
+  // 2. Try the customer's most recent checkout sessions (some setups attach the
+  //    field to the session without the subscription filter matching)
+  if (sub.customerId) {
+    try {
+      const data = await stripeFetch('checkout/sessions?customer=' + encodeURIComponent(sub.customerId) + '&limit=10', key);
+      for (const session of (data.data || [])) {
+        const found = extractDomainFromCustomFields(session.custom_fields);
+        if (found) return found;
+      }
+    } catch (e) { /* fall through */ }
+  }
+
+  return '';
+}
+
+// Given a Stripe custom_fields array, return the value of the field that
+// looks like a domain (key or label contains "domain"). Handles text/dropdown/numeric.
+function extractDomainFromCustomFields(fields) {
+  if (!Array.isArray(fields)) return '';
+  for (const f of fields) {
+    const key = (f.key || '').toLowerCase();
+    const label = (f.label && f.label.custom ? f.label.custom : '').toLowerCase();
+    if (key.includes('domain') || label.includes('domain')) {
+      if (f.text && f.text.value) return f.text.value;
+      if (f.dropdown && f.dropdown.value) return f.dropdown.value;
+      if (f.numeric && f.numeric.value) return f.numeric.value;
+    }
+  }
+  return '';
+}
+
 function normaliseProductName(name) {
   if (!name) return name;
   let n = name;
@@ -604,6 +648,7 @@ function processSubscription(s) {
     productList: [...new Set(products)],
     productListRaw: [...new Set(rawProducts)],
     domain: domain,
+    domainFetched: !!domain, // true if we already found it in metadata; otherwise we'll look it up on expand
     amount: total,
     annualised: annualised,
     currency: currency,
@@ -751,8 +796,28 @@ function render() {
   tbody.querySelectorAll('.row-main').forEach(row => {
     row.addEventListener('click', () => {
       const id = row.dataset.id;
-      expandedSubId = expandedSubId === id ? null : id;
+      const wasExpanded = expandedSubId === id;
+      expandedSubId = wasExpanded ? null : id;
       render();
+      // If we just opened a row and haven't looked up its domain yet, do it now.
+      if (!wasExpanded) {
+        const sub = allSubs.find(x => x.id === id);
+        if (sub && !sub.domainFetched) {
+          const key = keyInput.value.trim();
+          sub.domainLoading = true;
+          render();
+          fetchDomainForSubscription(sub, key).then(domain => {
+            sub.domain = domain || '';
+            sub.domainFetched = true;
+            sub.domainLoading = false;
+            if (expandedSubId === id) render();
+          }).catch(() => {
+            sub.domainFetched = true;
+            sub.domainLoading = false;
+            if (expandedSubId === id) render();
+          });
+        }
+      }
     });
   });
 }
@@ -788,6 +853,20 @@ function renderRow(s) {
   return html;
 }
 
+function domainRow(s) {
+  let valueHtml;
+  if (s.domainLoading) {
+    valueHtml = '<span style="color: var(--text-muted);">looking up…</span>';
+  } else if (s.domain) {
+    valueHtml = escapeHtml(s.domain);
+  } else if (s.domainFetched) {
+    valueHtml = '<span class="dash">not provided</span>';
+  } else {
+    valueHtml = '<span class="dash">—</span>';
+  }
+  return '<div class="drow"><span class="label">Domain</span><span class="value">' + valueHtml + '</span></div>';
+}
+
 function renderDetailRow(s) {
   const audAnnual = convertToAUD(s.annualised, s.currency);
   const created = s.startDate || s.created;
@@ -813,7 +892,7 @@ function renderDetailRow(s) {
     '<div class="detail-list">' +
       '<div class="drow"><span class="label">Name</span><span class="value">' + escapeHtml(s.name) + '</span></div>' +
       '<div class="drow"><span class="label">Email</span><span class="value">' + (s.email ? '<a href="mailto:' + escapeHtml(s.email) + '" style="color: var(--purple-text); text-decoration: none;">' + escapeHtml(s.email) + '</a>' : '—') + '</span></div>' +
-      (s.domain ? '<div class="drow"><span class="label">Domain</span><span class="value">' + escapeHtml(s.domain) + '</span></div>' : '') +
+      domainRow(s) +
       '<div class="drow"><span class="label">Products</span><span class="value">' + escapeHtml(s.products) + '</span></div>' +
     '</div>' +
     (customerUrl ? '<a class="detail-link" href="' + customerUrl + '" target="_blank" rel="noopener">View customer →</a>' : '') +
