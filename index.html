@@ -301,10 +301,13 @@
 
     <div id="results" style="display:none;">
       <div class="metrics">
-        <div class="metric"><div class="metric-label">Total subs</div><div class="metric-value" id="m-total">0</div></div>
         <div class="metric"><div class="metric-label">Active</div><div class="metric-value" id="m-active">0</div></div>
         <div class="metric"><div class="metric-label">Past due</div><div class="metric-value" id="m-pastdue">0</div></div>
-        <div class="metric"><div class="metric-label">Cancelled</div><div class="metric-value" id="m-cancelled">0</div></div>
+        <div class="metric">
+          <div class="metric-label">Due next 30 days</div>
+          <div class="metric-value small" id="m-due30">—</div>
+          <div class="metric-sub" id="m-due30-sub">&nbsp;</div>
+        </div>
         <div class="metric">
           <div class="metric-label">YRR (active, AUD)</div>
           <div class="metric-value small" id="m-yrr">—</div>
@@ -347,7 +350,7 @@
               <th>Customer</th>
               <th>Status</th>
               <th>Product</th>
-              <th>Amount</th>
+              <th>Amount (incl. GST)</th>
               <th>Last payment</th>
               <th>Next payment</th>
             </tr>
@@ -661,6 +664,48 @@ function applyDiscount(d, lines, inv, currency) {
   return any ? 'Discount' : null;
 }
 
+// Works out the tax rate (e.g. 0.10 for GST) added ON TOP of a tax-exclusive item.
+// Tax-inclusive prices already contain GST, so they return 0.
+// 1. Uses what the latest invoice actually charged for this item (most accurate,
+//    covers Stripe automatic tax). 2. For automatic tax with no invoice yet (e.g. a
+//    trial), Australian customers on tax-exclusive prices get 10% GST.
+//    3. Otherwise uses any manual tax rates on the item or subscription.
+function exclusiveTaxRate(line, s, inv, cust) {
+  const item = line.item;
+  if (inv && inv.lines && Array.isArray(inv.lines.data)) {
+    const invLine = inv.lines.data.find(l =>
+      (l.parent && l.parent.subscription_item_details && l.parent.subscription_item_details.subscription_item === item.id) ||
+      l.subscription_item === item.id);
+    if (invLine) {
+      let taxed = 0, taxable = 0, seen = false;
+      for (const t of (invLine.taxes || [])) {
+        seen = true;
+        if (t.tax_behavior === 'exclusive' && t.taxable_amount > 0) { taxed += t.amount || 0; taxable += t.taxable_amount; }
+      }
+      for (const t of (invLine.tax_amounts || [])) { // older Stripe API versions
+        seen = true;
+        if (t.inclusive === false && t.taxable_amount > 0) { taxed += t.amount || 0; taxable += t.taxable_amount; }
+      }
+      if (taxable > 0) return taxed / taxable;
+      // Invoice line exists but nothing was taxable (e.g. $0 trial invoice): fall through to estimate.
+      if (!seen && !(s.automatic_tax && s.automatic_tax.enabled)) return 0;
+    }
+  }
+  if (s.automatic_tax && s.automatic_tax.enabled) {
+    const behaviour = item.price?.tax_behavior;
+    const country = cust && cust.address ? cust.address.country : null;
+    const exempt = cust && (cust.tax_exempt === 'exempt' || cust.tax_exempt === 'reverse');
+    if (behaviour === 'exclusive' && country === 'AU' && !exempt) return 0.10;
+    return 0;
+  }
+  const rates = (item.tax_rates && item.tax_rates.length) ? item.tax_rates : (s.default_tax_rates || []);
+  let pct = 0;
+  for (const r of rates) {
+    if (r && typeof r === 'object' && r.inclusive === false && r.active !== false) pct += (r.percentage || 0);
+  }
+  return pct / 100;
+}
+
 function processSubscription(s) {
   const cust = (typeof s.customer === 'object' && s.customer)
     ? { name: s.customer.name || '', email: s.customer.email || '', id: s.customer.id }
@@ -714,11 +759,23 @@ function processSubscription(s) {
     if (label) discountLabels.push(label);
   }
 
+  // 3. Add GST/tax that's charged on top of tax-exclusive prices.
+  let taxTotal = 0;
+  const custObj = (typeof s.customer === 'object' && s.customer) ? s.customer : null;
+  for (const line of lines) {
+    const rate = exclusiveTaxRate(line, s, inv, custObj);
+    const discounted = Math.max(0, line.amount);
+    const tax = discounted * rate;
+    line.amount = discounted + tax;
+    line.baseWithTax = line.base * (1 + rate);
+    taxTotal += tax;
+  }
+
   for (const line of lines) {
     const item = line.item;
     const sub = Math.max(0, Math.round(line.amount));
     total += sub;
-    listTotal += line.base;
+    listTotal += Math.round(line.baseWithTax);
     const recurring = item.price?.recurring;
     if (recurring) {
       interval = recurring.interval;
@@ -745,13 +802,19 @@ function processSubscription(s) {
       lastPaymentDate = inv.created;
     }
   }
-  if (!lastPaymentDate && s.current_period_start && (s.status === 'active' || s.status === 'trialing')) {
-    lastPaymentDate = s.current_period_start;
+  // Newer Stripe API versions keep the billing period on each item rather than the subscription.
+  const itemStarts = items.map(i => i.current_period_start).filter(Boolean);
+  const itemEnds = items.map(i => i.current_period_end).filter(Boolean);
+  const periodStart = s.current_period_start || (itemStarts.length ? Math.max(...itemStarts) : null);
+  const periodEnd = s.current_period_end || (itemEnds.length ? Math.min(...itemEnds) : null);
+
+  if (!lastPaymentDate && periodStart && (s.status === 'active' || s.status === 'trialing')) {
+    lastPaymentDate = periodStart;
   }
 
   let nextPayment = null;
   if (s.status !== 'canceled' && s.status !== 'incomplete_expired' && !s.cancel_at_period_end) {
-    nextPayment = s.current_period_end || null;
+    nextPayment = (s.status === 'trialing' && s.trial_end) ? s.trial_end : (periodEnd || null);
   }
 
   return {
@@ -770,6 +833,8 @@ function processSubscription(s) {
     listAmount: listTotal,
     discountAmount: listTotal - total,
     discountLabels: [...new Set(discountLabels)],
+    taxAmount: Math.round(taxTotal),
+    gstIncluded: lines.some(l => l.item.price?.tax_behavior === 'inclusive') || taxTotal > 0,
     annualised: annualised,
     currency: currency,
     interval: interval,
@@ -885,10 +950,20 @@ function render() {
     return a.name.localeCompare(b.name);
   });
 
-  $('m-total').textContent = allSubs.length;
   $('m-active').textContent = allSubs.filter(s => s.status === 'active').length;
   $('m-pastdue').textContent = allSubs.filter(s => s.status === 'past_due').length;
-  $('m-cancelled').textContent = allSubs.filter(s => s.status === 'canceled').length;
+
+  // Renewals due in the next 30 days (active, trialing or past due; not cancelling).
+  const nowSec = Math.floor(Date.now() / 1000);
+  const in30 = nowSec + 30 * 86400;
+  const dueSoon = allSubs.filter(s =>
+    ['active', 'trialing', 'past_due'].includes(s.status) &&
+    s.nextPayment && !s.cancelAtPeriodEnd &&
+    s.nextPayment >= nowSec && s.nextPayment <= in30);
+  let dueAud = 0;
+  dueSoon.forEach(s => { const a = convertToAUD(s.amount, s.currency); if (a != null) dueAud += a; });
+  $('m-due30').textContent = fmtAUD(dueAud);
+  $('m-due30-sub').textContent = dueSoon.length === 1 ? '1 payment' : dueSoon.length + ' payments';
 
   let yrrAud = 0;
   allSubs.filter(s => s.status === 'active' || s.status === 'trialing').forEach(s => {
@@ -1005,6 +1080,7 @@ function renderDetailRow(s) {
         '<div class="drow"><span class="label">Full price</span><span class="value">' + fmtMoney(s.listAmount, s.currency) + '</span></div>' +
         '<div class="drow"><span class="label">Discount</span><span class="value">−' + fmtMoney(s.discountAmount, s.currency) + ' · ' + escapeHtml(s.discountLabels.join(', ') || 'Discount') + '</span></div>'
       : '') +
+      (s.taxAmount > 0 ? '<div class="drow"><span class="label">GST (added on top of price)</span><span class="value">' + fmtMoney(s.taxAmount, s.currency) + '</span></div>' : '') +
       '<div class="drow"><span class="label">Annualised (' + (s.currency || 'usd').toUpperCase() + ')</span><span class="value">' + fmtMoney(s.annualised, s.currency) + '</span></div>' +
       (audAnnual != null && (s.currency || '').toLowerCase() !== 'aud' ? '<div class="drow"><span class="label">Annualised (AUD)</span><span class="value">~' + fmtAUD(audAnnual) + '</span></div>' : '') +
       '<div class="drow"><span class="label">Started</span><span class="value">' + (created ? fmtDate(created) : '—') + '</span></div>' +
@@ -1052,7 +1128,7 @@ function exportCSV() {
     if (b.nextPayment) return 1;
     return a.name.localeCompare(b.name);
   });
-  const header = ['Customer', 'Email', 'Status', 'Product(s)', 'Amount', 'Full price', 'Discount', 'Currency', 'Billing interval', 'Annualised (AUD)', 'Last payment', 'Next payment'];
+  const header = ['Customer', 'Email', 'Status', 'Product(s)', 'Amount (incl. GST)', 'Full price', 'Discount', 'GST added', 'Currency', 'Billing interval', 'Annualised (AUD)', 'Last payment', 'Next payment'];
   const lines = [header, ...rows.map(s => [
     s.name, s.email,
     s.cancelAtPeriodEnd && s.status === 'active' ? 'cancels at period end' : s.status,
@@ -1060,6 +1136,7 @@ function exportCSV() {
     (s.amount / 100).toFixed(2),
     (s.listAmount / 100).toFixed(2),
     s.discountAmount > 0 ? s.discountLabels.join(', ') || 'Discount' : '',
+    s.taxAmount > 0 ? (s.taxAmount / 100).toFixed(2) : '',
     s.currency.toUpperCase(),
     intervalLabel(s.interval, s.intervalCount),
     convertToAUD(s.annualised, s.currency) != null ? (convertToAUD(s.annualised, s.currency) / 100).toFixed(2) : '',
