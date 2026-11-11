@@ -328,7 +328,7 @@
       <div class="controls">
         <input type="search" class="grow" id="search" placeholder="Search by name or email..." />
         <select id="statusFilter">
-          <option value="default">Active + past due</option>
+          <option value="default">Active, trialing + past due</option>
           <option value="">All statuses</option>
           <option value="recently_paid">Recently paid (last 60 days)</option>
           <option value="active">Active only</option>
@@ -919,7 +919,7 @@ function statusRank(s) {
   if (s.status === 'past_due') return 0;
   if (s.status === 'unpaid') return 1;
   if (s.status === 'active') return 2;
-  if (s.status === 'trialing') return 3;
+  if (s.status === 'trialing') return 2; // treated the same as active
   if (s.status === 'incomplete' || s.status === 'paused') return 4;
   if (s.status === 'canceled' || s.status === 'incomplete_expired') return 6;
   return 5;
@@ -933,7 +933,7 @@ function render() {
   const filtered = allSubs.filter(s => {
     if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q)) return false;
     if (statusFilter === 'default') {
-      if (s.status !== 'active' && s.status !== 'past_due') return false;
+      if (s.status !== 'active' && s.status !== 'trialing' && s.status !== 'past_due') return false;
     } else if (statusFilter === 'recently_paid') {
       if (!isRecentlyPaid(s)) return false;
     } else if (statusFilter && s.status !== statusFilter) return false;
@@ -1113,7 +1113,7 @@ function exportCSV() {
   const rows = allSubs.filter(s => {
     if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q)) return false;
     if (statusFilter === 'default') {
-      if (s.status !== 'active' && s.status !== 'past_due') return false;
+      if (s.status !== 'active' && s.status !== 'trialing' && s.status !== 'past_due') return false;
     } else if (statusFilter === 'recently_paid') {
       if (!isRecentlyPaid(s)) return false;
     } else if (statusFilter && s.status !== statusFilter) return false;
