@@ -213,6 +213,8 @@
     .pill.trialing { background: var(--info-bg); color: var(--info-text); }
     .pill.incomplete, .pill.unpaid, .pill.incomplete_expired, .pill.paused { background: var(--amber-bg); color: var(--amber-text); }
     .amount { font-weight: 500; white-space: nowrap; }
+    .amount-was { font-size: 11px; color: var(--text-muted); text-decoration: line-through; margin-left: 4px; white-space: nowrap; }
+    .discount-tag { display: inline-block; margin-top: 3px; font-size: 10.5px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: var(--yellow); color: var(--yellow-text); white-space: nowrap; }
     .next-cell .next-date { white-space: nowrap; }
     .next-cell .next-rel { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
     .next-cell .next-rel.urgent { color: var(--red-text); font-weight: 500; }
@@ -362,6 +364,7 @@ const STORAGE_KEY = 'ek_stripe_dashboard_key_v1';
 let allSubs = [];
 let productMap = {};
 let customerMap = {};
+let couponMap = {};
 let fxRates = null;
 let expandedSubId = null;
 
@@ -459,7 +462,7 @@ async function loadSubscriptions() {
     let pageCount = 0;
     while (true) {
       pageCount++;
-      let path = 'subscriptions?limit=100&status=all&expand[]=data.customer&expand[]=data.latest_invoice';
+      let path = 'subscriptions?limit=100&status=all&expand[]=data.customer&expand[]=data.latest_invoice&expand[]=data.discounts';
       if (starting_after) path += '&starting_after=' + encodeURIComponent(starting_after);
       const data = await stripeFetch(path, key);
       subs.push(...data.data);
@@ -496,6 +499,27 @@ async function loadSubscriptions() {
           customerMap[c] = { name: cust.name || '', email: cust.email || '', id: c, metadata: cust.metadata || {} };
         } catch { customerMap[c] = { name: '', email: '', id: c, metadata: {} }; }
       }
+    }
+
+    setProgress(95, 'Loading discount codes...');
+    couponMap = {};
+    const couponIds = new Set();
+    for (const s of subs) {
+      const ds = [...(s.discounts || []), s.discount];
+      for (const item of (s.items?.data || [])) ds.push(...(item.discounts || []));
+      if (typeof s.customer === 'object' && s.customer) ds.push(s.customer.discount);
+      for (const d of ds) {
+        const c = couponFromDiscount(d);
+        // Embedded coupons don't include applies_to (product limits), so always
+        // re-fetch by ID with applies_to expanded; keep the embedded copy as a fallback.
+        if (c && typeof c === 'object' && c.id) { couponMap[c.id] = c; couponIds.add(c.id); }
+        else if (typeof c === 'string') couponIds.add(c);
+      }
+    }
+    for (const cid of couponIds) {
+      try {
+        couponMap[cid] = await stripeFetch('coupons/' + encodeURIComponent(cid) + '?expand[]=applies_to', key);
+      } catch { /* key may lack Coupons read access; falls back to invoice amounts */ }
     }
 
     setProgress(98, 'Building dashboard...');
@@ -570,6 +594,73 @@ function normaliseProductName(name) {
   return n.trim();
 }
 
+// A discount's coupon lives at discount.coupon (older Stripe API versions)
+// or discount.source.coupon (newer versions). Returns an object, an ID string, or null.
+function couponFromDiscount(d) {
+  if (!d || typeof d !== 'object') return null;
+  return d.coupon || (d.source && d.source.coupon) || null;
+}
+
+function couponLabel(c, d) {
+  const name = c.name || (c.percent_off != null ? c.percent_off + '% off' : 'Discount');
+  let dur = '';
+  if (c.duration === 'forever') dur = 'forever';
+  else if (c.duration === 'once') dur = 'first payment only';
+  else if (c.duration === 'repeating') dur = (d && d.end) ? 'until ' + fmtDate(d.end) : (c.duration_in_months ? c.duration_in_months + ' months' : '');
+  return dur ? name + ' (' + dur + ')' : name;
+}
+
+// How much the latest invoice actually took off one subscription item for a given discount.
+function invoiceDiscountForItem(inv, itemId, discountId) {
+  if (!inv || !inv.lines || !Array.isArray(inv.lines.data)) return null;
+  const line = inv.lines.data.find(l =>
+    (l.parent && l.parent.subscription_item_details && l.parent.subscription_item_details.subscription_item === itemId) ||
+    l.subscription_item === itemId);
+  if (!line) return null;
+  const da = (line.discount_amounts || []).find(x => x.discount === discountId);
+  return da ? da.amount : null;
+}
+
+// Applies one discount to the given lines (mutating line.amount). Returns a label, or null if nothing applied.
+function applyDiscount(d, lines, inv, currency) {
+  if (!d) return null;
+  const discountId = typeof d === 'string' ? d : d.id;
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof d === 'object' && d.end && d.end <= now) return null; // discount has expired
+
+  const ref = couponFromDiscount(d);
+  const coupon = ref ? (couponMap[typeof ref === 'string' ? ref : ref.id] || (typeof ref === 'object' ? ref : null)) : null;
+
+  if (coupon) {
+    // Note: a coupon that's no longer redeemable (valid: false) still applies to existing subscriptions.
+    const limitTo = coupon.applies_to && Array.isArray(coupon.applies_to.products) ? coupon.applies_to.products : null;
+    const eligible = lines.filter(l => !limitTo || limitTo.includes(l.product));
+    if (!eligible.length) return null;
+    if (coupon.percent_off != null) {
+      eligible.forEach(l => { l.amount -= l.amount * coupon.percent_off / 100; });
+    } else if (coupon.amount_off != null) {
+      const cur = (currency || '').toLowerCase();
+      let off = null;
+      if ((coupon.currency || '').toLowerCase() === cur) off = coupon.amount_off;
+      else if (coupon.currency_options && coupon.currency_options[cur]) off = coupon.currency_options[cur].amount_off;
+      if (off == null) return null;
+      const eligibleTotal = eligible.reduce((sum, l) => sum + l.amount, 0);
+      if (eligibleTotal <= 0) return null;
+      const applied = Math.min(off, eligibleTotal);
+      eligible.forEach(l => { l.amount -= applied * (l.amount / eligibleTotal); });
+    }
+    return couponLabel(coupon, typeof d === 'object' ? d : null);
+  }
+
+  // Couldn't read the coupon: fall back to what the latest invoice actually discounted.
+  let any = false;
+  for (const l of lines) {
+    const amt = invoiceDiscountForItem(inv, l.item.id, discountId);
+    if (amt) { l.amount -= amt; any = true; }
+  }
+  return any ? 'Discount' : null;
+}
+
 function processSubscription(s) {
   const cust = (typeof s.customer === 'object' && s.customer)
     ? { name: s.customer.name || '', email: s.customer.email || '', id: s.customer.id }
@@ -593,17 +684,41 @@ function processSubscription(s) {
   }
 
   let total = 0;
+  let listTotal = 0;
   let annualised = 0;
-  let currency = 'usd';
+  let currency = (s.currency || 'usd');
   let interval = null;
   let intervalCount = 1;
 
-  for (const item of items) {
-    const unit = item.price?.unit_amount || 0;
-    const qty = item.quantity || 1;
-    const sub = unit * qty;
+  for (const item of items) { if (item.price?.currency) { currency = item.price.currency; break; } }
+  const lines = items.map(item => {
+    const base = (item.price?.unit_amount || 0) * (item.quantity || 1);
+    return { item, product: item.price?.product, base, amount: base };
+  });
+  const inv = (s.latest_invoice && typeof s.latest_invoice === 'object') ? s.latest_invoice : null;
+  const discountLabels = [];
+
+  // 1. Item-level discounts apply first (Stripe's order).
+  for (const line of lines) {
+    for (const d of (line.item.discounts || [])) {
+      const label = applyDiscount(d, [line], inv, currency);
+      if (label) discountLabels.push(label);
+    }
+  }
+  // 2. Subscription-level discounts. If there are none, a customer-level discount applies.
+  let subDiscounts = (s.discounts || []).filter(Boolean);
+  if (!subDiscounts.length && s.discount) subDiscounts = [s.discount];
+  if (!subDiscounts.length && typeof s.customer === 'object' && s.customer && s.customer.discount) subDiscounts = [s.customer.discount];
+  for (const d of subDiscounts) {
+    const label = applyDiscount(d, lines, inv, currency);
+    if (label) discountLabels.push(label);
+  }
+
+  for (const line of lines) {
+    const item = line.item;
+    const sub = Math.max(0, Math.round(line.amount));
     total += sub;
-    if (item.price?.currency) currency = item.price.currency;
+    listTotal += line.base;
     const recurring = item.price?.recurring;
     if (recurring) {
       interval = recurring.interval;
@@ -652,6 +767,9 @@ function processSubscription(s) {
     domain: domain,
     domainFetched: !!domain, // true if we already found it in metadata; otherwise we'll look it up on expand
     amount: total,
+    listAmount: listTotal,
+    discountAmount: listTotal - total,
+    discountLabels: [...new Set(discountLabels)],
     annualised: annualised,
     currency: currency,
     interval: interval,
@@ -844,7 +962,11 @@ function renderRow(s) {
     '<td data-label="Customer"><div class="name"><svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' + escapeHtml(s.name) + '</div><div class="email">' + escapeHtml(s.email) + '</div></td>' +
     '<td data-label="Status"><span class="pill ' + statusClass + '">' + escapeHtml(statusLabel) + '</span></td>' +
     '<td data-label="Product">' + escapeHtml(s.products) + '</td>' +
-    '<td data-label="Amount"><span class="amount">' + fmtMoney(s.amount, s.currency) + '</span>' + intervalSuffix + '</td>' +
+    '<td data-label="Amount"><span class="amount">' + fmtMoney(s.amount, s.currency) + '</span>' +
+      (s.discountAmount > 0 ? '<span class="amount-was">' + fmtMoney(s.listAmount, s.currency) + '</span>' : '') +
+      intervalSuffix +
+      (s.discountAmount > 0 ? '<div><span class="discount-tag">' + escapeHtml(s.discountLabels.join(', ') || 'Discount') + '</span></div>' : '') +
+    '</td>' +
     '<td data-label="Last payment">' + (s.lastPayment ? fmtDate(s.lastPayment) : '<span class="dash">—</span>') + '</td>' +
     '<td data-label="Next payment" class="next-cell">' + nextDisplay + '</td>' +
   '</tr>';
@@ -879,6 +1001,10 @@ function renderDetailRow(s) {
     '<h4>Subscription</h4>' +
     '<div class="detail-list">' +
       '<div class="drow"><span class="label">Billing</span><span class="value">' + fmtMoney(s.amount, s.currency) + ' ' + escapeHtml(intervalLabel(s.interval, s.intervalCount)) + '</span></div>' +
+      (s.discountAmount > 0 ?
+        '<div class="drow"><span class="label">Full price</span><span class="value">' + fmtMoney(s.listAmount, s.currency) + '</span></div>' +
+        '<div class="drow"><span class="label">Discount</span><span class="value">−' + fmtMoney(s.discountAmount, s.currency) + ' · ' + escapeHtml(s.discountLabels.join(', ') || 'Discount') + '</span></div>'
+      : '') +
       '<div class="drow"><span class="label">Annualised (' + (s.currency || 'usd').toUpperCase() + ')</span><span class="value">' + fmtMoney(s.annualised, s.currency) + '</span></div>' +
       (audAnnual != null && (s.currency || '').toLowerCase() !== 'aud' ? '<div class="drow"><span class="label">Annualised (AUD)</span><span class="value">~' + fmtAUD(audAnnual) + '</span></div>' : '') +
       '<div class="drow"><span class="label">Started</span><span class="value">' + (created ? fmtDate(created) : '—') + '</span></div>' +
@@ -926,12 +1052,14 @@ function exportCSV() {
     if (b.nextPayment) return 1;
     return a.name.localeCompare(b.name);
   });
-  const header = ['Customer', 'Email', 'Status', 'Product(s)', 'Amount', 'Currency', 'Billing interval', 'Annualised (AUD)', 'Last payment', 'Next payment'];
+  const header = ['Customer', 'Email', 'Status', 'Product(s)', 'Amount', 'Full price', 'Discount', 'Currency', 'Billing interval', 'Annualised (AUD)', 'Last payment', 'Next payment'];
   const lines = [header, ...rows.map(s => [
     s.name, s.email,
     s.cancelAtPeriodEnd && s.status === 'active' ? 'cancels at period end' : s.status,
     s.products,
     (s.amount / 100).toFixed(2),
+    (s.listAmount / 100).toFixed(2),
+    s.discountAmount > 0 ? s.discountLabels.join(', ') || 'Discount' : '',
     s.currency.toUpperCase(),
     intervalLabel(s.interval, s.intervalCount),
     convertToAUD(s.annualised, s.currency) != null ? (convertToAUD(s.annualised, s.currency) / 100).toFixed(2) : '',
